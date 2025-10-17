@@ -18,7 +18,7 @@
 #include "../include/tree_utilities.hpp"
 #include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;
-#define USE_PCL_LIBRARY
+#define USE_PCL_LIBRARY             //disattiva
 using namespace lidar_obstacle_detection;
 
 typedef std::unordered_set<int> my_visited_set_t;
@@ -106,12 +106,46 @@ std::vector<pcl::PointIndices> euclideanCluster(typename pcl::PointCloud<pcl::Po
 	return clusters;	
 }
 
-void 
-ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
+
+    //Configuration
+    float LeafVoxelGrid = 0.1;
+
+    int RANSAC_it = 1000;
+    float RANSAC_threashold = 0.1;
+    float remainingCloudRatio = 0.4f;  
+
+    float cluster_tol = 0.3;       //30cm
+    int min_cluster_size = 100;
+    int max_cluster_size = 25000;
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////
     // TODO: 1) Downsample the dataset 
+    ////////////////////////////////////////////////////////////////////////////////////////
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_before_crop(new pcl::PointCloud<pcl::PointXYZ>);
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane (new pcl::PointCloud<pcl::PointXYZ> ());
+
+    //Qui aggiungo il downsample Voxel Grid
+    pcl::VoxelGrid<pcl::PointXYZ> vg;
+    vg.setInputCloud(cloud);
+    vg.setLeafSize(LeafVoxelGrid, LeafVoxelGrid, LeafVoxelGrid); // dimensione del voxel (modificabile)
+    vg.filter(*cloud_filtered);        //questo dopo va mostrata tramite renderer
+
+    // Salva una copia prima del crop (altrimenti viene sovrascritta)
+    *cloud_before_crop = *cloud_filtered;
+
+    std::cout << "[INFO] PointCloud after filtering: " 
+              << cloud_filtered->width * cloud_filtered->height << " points." << std::endl;
+
+    /*  per debug
+    Color white(1.0, 1.0, 1.0);
+    renderer.RenderPointCloud(cloud_before_crop, "onlyVoxel_filteredCloud", white);
+    */
 
     // 2) here we crop the points that are far away from us, in which we are not interested
     pcl::CropBox<pcl::PointXYZ> cb(true);
@@ -120,29 +154,113 @@ ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::
     cb.setMax(Eigen::Vector4f ( 30, 7, 5, 1));
     cb.filter(*cloud_filtered); 
 
+    /* per debug
+    Color red(1.0, 0.0, 0.0);
+    renderer.RenderPointCloud(cloud_filtered, "filteredCloud", red);
+    */
+
+    ////////////////////////////////////////////////////////////////////////////////////////
     // TODO: 3) Segmentation and apply RANSAC
-
-
     // TODO: 4) iterate over the filtered cloud, segment and remove the planar inliers 
+    ////////////////////////////////////////////////////////////////////////////////////////
+    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    pcl::ExtractIndices<pcl::PointXYZ> extract;
+
+    // Set RANSAC parameters
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setMaxIterations(RANSAC_it);
+    seg.setDistanceThreshold(RANSAC_threashold); 
+
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+
+    int i = 0;
+    int nr_points = (int) cloud_filtered->size();
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_aux(new pcl::PointCloud<pcl::PointXYZ>);
+
+    while (cloud_filtered->size() > remainingCloudRatio * nr_points)
+    {
+        seg.setInputCloud(cloud_filtered);
+        seg.segment(*inliers, *coefficients);
+
+        if (inliers->indices.empty())
+        {
+            std::cerr << "[WARN] Could not estimate a planar model for the given dataset." << std::endl;
+            break;
+        }
+
+        // Estraggo il piano
+        extract.setInputCloud(cloud_filtered);
+        extract.setIndices(inliers);
+        extract.setNegative(false);
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
+        extract.filter(*cloud_plane);
+
+        std::cout << "[INFO] Plane " << i 
+                  << " extracted with " << cloud_plane->size() << " points." << std::endl;
+
+        // Render del piano in verde (DEBUG)
+        /*
+        Color green(0.0, 1.0, 0.0);
+        renderer.RenderPointCloud(cloud_plane, "plane_" + std::to_string(i), green);
+        */
+
+        // Rimuovo il piano dal cloud principale
+        extract.setNegative(true);
+        extract.filter(*cloud_aux);
+        cloud_filtered.swap(cloud_aux);
+
+        i++;
+    }
+
+    std::cout << "[INFO] Remaining cloud after removing planes: " 
+              << cloud_filtered->size() << " points." << std::endl;
+
+    
+        
+    //Ora cloud_filtered ha SOLO i punti NON planari
+    //debug:
+    /*
+    Color yellow(1.0, 1.0, 0.0);
+    renderer.RenderPointCloud(cloud_filtered, "nonPlanarCloud", yellow);
+    */
 
 
+    /////////
     // TODO: 5) Create the KDTree and the vector of PointIndices
-
-
+    /////////
     // TODO: 6) Set the spatial tolerance for new cluster candidates (pay attention to the tolerance!!!)
     std::vector<pcl::PointIndices> cluster_indices;
 
-    #ifdef USE_PCL_LIBRARY
 
-        //PCL functions
-        //HERE 6)
-    #else
-        // Optional assignment
+    #ifdef USE_PCL_LIBRARY                      //Qui uso di funzioni già fatte da PCL
+
+        std::cout << "[CLUSTERING DEFAULT] "<< std::endl;
+        // --- PCL Euclidean clustering ---
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+        tree->setInputCloud(cloud_filtered); 
+
+        pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+        ec.setClusterTolerance(cluster_tol);        
+        ec.setMinClusterSize(min_cluster_size);          
+        ec.setMaxClusterSize(max_cluster_size);       
+        ec.setSearchMethod(tree);
+        ec.setInputCloud(cloud_filtered);
+        ec.extract(cluster_indices);
+
+    #else               //QUI MIA IMPLEMENTAZIONE
+
         my_pcl::KdTree treeM;
         treeM.set_dimension(3);
         setupKdtree(cloud_filtered, &treeM, 3);
         cluster_indices = euclideanCluster(cloud_filtered, &treeM, clusterTolerance, setMinClusterSize, setMaxClusterSize);
+
     #endif
+
 
     std::vector<Color> colors = {Color(1,0,0), Color(1,1,0), Color(0,0,1), Color(1,0,1), Color(0,1,1)};
 
@@ -151,7 +269,7 @@ ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::
 
     To separate each cluster out of the vector<PointIndices> we have to iterate through cluster_indices, create a new PointCloud for each entry and write all points of the current cluster in the PointCloud.
     Compute euclidean distance
-    **/
+    
     int j = 0;
     int clusterId = 0;
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
@@ -181,13 +299,86 @@ ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::
 
         ++clusterId;
         j++;
-    }  
+    }  **/
+    std::cout << cluster_indices.size() << std::endl;
+    int clusterId = 0;
+    // "it --> iteratore dei cluster"
+    // it-->indices per accedere a tutti i punti del cluster attuale
+    // cloud_cluster perchè si crea ad ogni iterazione la nuvola del cluster con colori che ciclano
+    for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+    {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZ>);
+
+        for (int idx : it->indices)
+            cloud_cluster->push_back((*cloud_filtered)[idx]);
+
+        cloud_cluster->width = cloud_cluster->size();
+        cloud_cluster->height = 1;
+        cloud_cluster->is_dense = true;
+
+        // --- Render cluster ---
+        Color clusterColor = colors[clusterId % colors.size()];
+        renderer.RenderPointCloud(cloud_cluster, "cluster_" + std::to_string(clusterId), clusterColor);
+
+        // --- Bounding box ---
+        pcl::PointXYZ minPt, maxPt;
+        pcl::getMinMax3D(*cloud_cluster, minPt, maxPt);
+        Box box{minPt.x, minPt.y, minPt.z, maxPt.x, maxPt.y, maxPt.z};
+
+        // TODO: opzionale: colorare box in base alla distanza dall'ego vehicle [da fare]
+        renderer.RenderBox(box, clusterId);
+
+        ++clusterId;
+    }
+
 
 }
 
 
+// SOLO di partenza
+void ProcessAndRenderPointCloud_def(Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+{
+    // Mostra semplicemente la point cloud originale
+    if (cloud->empty()) {
+        std::cout << "[WARNING] Empty point cloud, nothing to render!" << std::endl;
+        return;
+    }
+
+    // Colore rosso per la nuvola  [r,g,b]
+    Color red(1.0, 0.0, 0.0);
+
+    // Render della nuvola originale
+    renderer.RenderPointCloud(cloud, "originalCloud", red);
+
+    // Aggiungiamo anche la strada per riferimento (opzionale)
+    //renderer.RenderHighway();
+
+
+    std::cout << "[INFO] Rendered point cloud with " 
+              << cloud->size() << " points." << std::endl;
+}
+
+
+
 int main(int argc, char* argv[])
 {
+    //gestione dinamica del dataset tramite parametro
+    if (argc < 2)
+    {
+        std::cerr << "Errore: immetti dataset come argomento.\n";
+        return -1;
+    }
+
+    std::string dataset_path = argv[1];
+
+    if (!boost::filesystem::exists(dataset_path) || 
+        !boost::filesystem::is_directory(dataset_path))
+    {
+        std::cerr << "Errore: il percorso \"" << dataset_path << "\" non esiste o non è una directory.\n";
+        return -1;
+    }
+
+
     Renderer renderer;
     renderer.InitCamera(CameraAngle::XY);
     // Clear viewer
@@ -195,7 +386,7 @@ int main(int argc, char* argv[])
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
-    std::vector<boost::filesystem::path> stream(boost::filesystem::directory_iterator{"/home/thrun/Desktop/1_lidar/dataset_1"},
+    std::vector<boost::filesystem::path> stream(boost::filesystem::directory_iterator{dataset_path},
                                                 boost::filesystem::directory_iterator{});
 
     // sort files in ascending (chronological) order
@@ -224,3 +415,6 @@ int main(int argc, char* argv[])
         renderer.SpinViewerOnce();
     }
 }
+
+
+
