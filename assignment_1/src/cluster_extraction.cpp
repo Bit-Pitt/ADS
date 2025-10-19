@@ -39,10 +39,10 @@ namespace Config {
     constexpr float REMAINING_CLOUD_RATIO = 0.4f;
 
     constexpr float CLUSTER_TOLERANCE = 0.4f;
-    constexpr int MIN_CLUSTER_SIZE = 30;
+    constexpr int MIN_CLUSTER_SIZE = 50;
     constexpr int MAX_CLUSTER_SIZE = 15000;
 
-    //per configurare il renderer
+    //per configurare il renderer , le varie fasi hanno colori diversi
     constexpr bool SHOW_VOXEL_FILTERED = false;
     constexpr bool SHOW_AFTER_CROP = false;
     constexpr bool SHOW_PLANES = false;
@@ -306,7 +306,7 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
     cb.setMin(Eigen::Vector4f(-20, -6, -2, 1));
     cb.setMax(Eigen::Vector4f(30, 7, 5, 1));
     cb.filter(*cloud_filtered); 
-
+    
     if (SHOW_AFTER_CROP) {
         Color white(1.0, 1.0, 1.0);
         renderer.RenderPointCloud(cloud_filtered, "croppedCloud", white);

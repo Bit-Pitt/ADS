@@ -1,16 +1,22 @@
                             PRIMO ASSIGNMENT
 
 Modifiche apportate al codice:
-- punto 1: implementazione con PCL fatta (basta togliere il commento a //#define USE_PCL_LIBRARY")
-- punto 2: fatto  (funzione "euclidean_cluster")
-- punto 3:   [TODO]  
+- punto 1: implementazione con PCL fatta
+        - basta togliere il commento a //#define USE_PCL_LIBRARY" e commentare le altre
+
+- punto 2: fatto  (funzione "euclideanCluster")
+
+- punto 3:  Il codice si adatta abbastanza bene anche al dataset2 tenendo conto che è scena più complessa e
+            dettagliata, tuttavia si creano alcuni cluster che non rappresentano propriamente macchine/persone, ad 
+            esempio il marciapiede rialzato o l'aiuola o alcuni muri possono divetare cluster perchè la crop
+            box è stata creata con parametri fissi che fittano bene per il dataset_1. Una possibile idea sarebbe quella di creare una crop box dinamica che si adatti al percorso.
 
 - Punto 4:   [elenco delle modifiche e estensioni opzionali apportate]
 
-    Funzionalità aggiuntive
+    Funzionalità aggiuntive:
         - uso di voxel approssimativo
         - ottimizzata funzione "proximity" --> "proximity_opt_iterative" evitando lo stack di chiamate ricorsive e array booleano per look-up diretto
-        - 
+        - Implementazione di una euristica di clustering chiamata "DBSCAN" (density based scanning) nota in letteratura, per settarla nel namespace hai "#define MY_DBSCAN" e commenta le altre due
         - I cluster sono colorati in base alla distanza:
             - rosso se distanza < 3m
             - giallo se   3 < distanza < 6
@@ -22,8 +28,5 @@ Modifiche apportate al codice:
             la configurazione del rendering (per mostrare gli output delle varie fasi)
 
 
-Questione performance:
-- la PCL è decisamente meglio ottimizzata rispetto alla versione "Nostra", tuttavia ho provato qualche miglioria:
-    - evitare chiamate ricorsive creando una versione iterativa
-    - opt al search tree?   [TODO]
+
 
