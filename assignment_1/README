@@ -3,15 +3,27 @@
 Modifiche apportate al codice:
 - punto 1: implementazione con PCL fatta (basta togliere il commento a //#define USE_PCL_LIBRARY")
 - punto 2: fatto  (funzione "euclidean_cluster")
-- punto 3:   [SPIEGARE QUI]
+- punto 3:   [TODO]  
 
 - Punto 4:   [elenco delle modifiche e estensioni opzionali apportate]
 
     Funzionalità aggiuntive
-    - uso di voxel approssimativo
+        - uso di voxel approssimativo
+        - ottimizzata funzione "proximity" --> "proximity_opt_iterative" evitando lo stack di chiamate ricorsive e array booleano per look-up diretto
+        - 
+        - I cluster sono colorati in base alla distanza:
+            - rosso se distanza < 3m
+            - giallo se   3 < distanza < 6
+            - verde altrimenti 
 
     Leggibilità e fruibilità del codice
-    - Il dataset viene dato come argomento (es: ./cluster_extraction ../dataset_1)
-    - è stato creato un namespace per settare la configurazione ovvero per tutti i parametri necessari per le varie fasi e
-        la configurazione del rendering (per mostrare gli output delle varie fasi)
+        - Il dataset viene dato come argomento (es: ./cluster_extraction ../dataset_1)
+        - è stato creato un namespace per settare la configurazione ovvero per tutti i parametri necessari per le varie fasi e
+            la configurazione del rendering (per mostrare gli output delle varie fasi)
+
+
+Questione performance:
+- la PCL è decisamente meglio ottimizzata rispetto alla versione "Nostra", tuttavia ho provato qualche miglioria:
+    - evitare chiamate ricorsive creando una versione iterativa
+    - opt al search tree?   [TODO]
 

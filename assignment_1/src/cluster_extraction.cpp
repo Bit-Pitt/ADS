@@ -19,19 +19,23 @@
 #include "../include/tree_utilities.hpp"
 #include <boost/filesystem.hpp>
 #include <stack>   //per opt versione di proximity
+#include <queue>
 namespace fs = boost::filesystem;
 
-//#define USE_PCL_LIBRARY             
 
 using namespace lidar_obstacle_detection;
 
 // Config generale
 namespace Config {
 
+    //define USE_PCL_LIBRARY 
+    //#define MY_PCL 
+    #define MY_DBSCAN 
+
     constexpr float LEAF_VOXEL_GRID = 0.15f;
 
-    constexpr int RANSAC_ITERATIONS = 1000;
-    constexpr float RANSAC_THRESHOLD = 0.15f;
+    constexpr int RANSAC_ITERATIONS = 700;
+    constexpr float RANSAC_THRESHOLD = 0.2f;
     constexpr float REMAINING_CLOUD_RATIO = 0.4f;
 
     constexpr float CLUSTER_TOLERANCE = 0.4f;
@@ -42,7 +46,7 @@ namespace Config {
     constexpr bool SHOW_VOXEL_FILTERED = false;
     constexpr bool SHOW_AFTER_CROP = false;
     constexpr bool SHOW_PLANES = false;
-    constexpr bool SHOW_NON_PLANAR = true;
+    constexpr bool SHOW_NON_PLANAR = false;
 
     //per la versione opt della "proximity"
     constexpr bool OPT_PROXIMITY = false;
@@ -105,6 +109,8 @@ void proximity(typename pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, int target_nd
     }
 }
 
+
+// Versione ottimizzata, resa la funzione iterativa evitando lo stack di ricorsione, e look-up diretto dei visited con array [invece che set per cui hai overhead dell'hash]
 void proximity_opt_iterative(
                         typename pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, 
                         int start_ndx, 
@@ -125,15 +131,13 @@ void proximity_opt_iterative(
         if (visited[current])
             continue;
 
-        // Segna come visitato
         visited[current] = true;
         cluster.push_back(current);
 
-        // Ottieni vicini dal KDTree
         std::vector<float> point = {cloud->at(current).x, cloud->at(current).y, cloud->at(current).z};
         std::vector<int> neighbors = tree->search(point, distanceTol);
 
-        // Aggiungi tutti i vicini non visitati nello stack
+        // Aggiungi tutti i vicini non visitati nello stack anzichè una recursive call
         for (int n : neighbors)
         {
             if (!visited[n])
@@ -157,42 +161,118 @@ This function builds the clusters following a euclidean clustering approach
 TODO: Complete the function
 */
 std::vector<pcl::PointIndices> euclideanCluster(
-                                        typename pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, 
-                                        my_pcl::KdTree* tree, 
-                                        float distanceTol, 
-                                        int setMinClusterSize, 
-                                        int setMaxClusterSize)
+    typename pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, 
+    my_pcl::KdTree* tree, 
+    float distanceTol, 
+    int setMinClusterSize, 
+    int setMaxClusterSize)
 {
-    if (Config::OPT_PROXIMITY)
-        std::vector<bool> visited(cloud->size(), false);     //look up diretto, invece che usando l'hash di un set
-    else
-        my_visited_set_t visited; 
+    std::vector<bool> visited(cloud->size(), false); // lookup diretto per punti visitati 
+    std::vector<pcl::PointIndices> clusters;         // vettore finale dei cluster
 
-    std::vector<pcl::PointIndices> clusters; // vettore finale di cluster
-
-    // Scorri tutti i punti della cloud
     for (int i = 0; i < cloud->size(); ++i)
     {
-        if (visited.find(i) == visited.end()) // se il punto non è stato ancora visitato
+        if (!visited[i]) // se il punto non è stato ancora visitato
         {
             std::vector<int> clusterIndices;
-            
-            // proximity per trovare i punti vicini al punto "i" (già ricorsivamente)
-            if (Config::OPT_PROXIMITY)
-                proximity_opt_iterative(cloud, i, tree, distanceTol, visited, clusterIndices, setMaxClusterSize);
-            else 
-                proximity_opt_iterative(cloud, i, tree, distanceTol, visited, clusterIndices, setMaxClusterSize);
 
+            // chiama la versione iterativa della proximity
+            proximity_opt_iterative(cloud, i, tree, distanceTol, visited, clusterIndices, setMaxClusterSize);
 
-            // controllo se rispetta i limiti dati
+            // aggiungi il cluster se rispetta i limiti di dimensione
             if (clusterIndices.size() >= setMinClusterSize && clusterIndices.size() <= setMaxClusterSize)
             {
                 pcl::PointIndices pclCluster;
-                pclCluster.indices = clusterIndices; // salva gli indici dei punti
+                pclCluster.indices = clusterIndices;
                 clusters.push_back(pclCluster);
             }
         }
     }
+
+    return clusters;
+}
+
+
+/*          DBSCAN
+ Clustering usando l'euristica "Density-based Scan"  (discussa in molti paper)
+Oltre alla distanza è importante la densità locale in un punto per essere considerato "core point"
+ Funzionamento:
+classifichi ogni punto come:
+ - core point	(se ha tot vicini ← qui si vede la density based)
+ - border point
+ - noise
+⇒cluster sarà una somma di core point + border vicini tra loro
+*/
+std::vector<pcl::PointIndices> DBSCAN(
+                    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
+                    my_pcl::KdTree* tree,
+                    float eps,
+                    int minPts)
+{
+    //Using DBScan
+    int N = cloud->size();
+    std::vector<int> labels(N, -1);  // Per lo stato di ogni punto: -1 = unvisited, 0 = noise, >0 cluster id
+    int clusterId = 0;
+
+    for (int i = 0; i < N; ++i)
+    {
+        if (labels[i] != -1) continue; // già visitato
+
+        std::vector<float> point = {cloud->at(i).x, cloud->at(i).y, cloud->at(i).z};
+        std::vector<int> neighbors = tree->search(point, eps);
+
+        if (neighbors.size() < minPts)      //Considero punti "noise" se i vicini in un eps < minimoPunti
+        {
+            labels[i] = 0; // punto classificato come rumore
+            continue;
+        }
+
+        // punto core → nuovo cluster
+        clusterId++;
+        labels[i] = clusterId;
+
+        std::queue<int> Q;          //metto in coda tutti i vicini
+        for (int n : neighbors)
+        {
+            if (n != i)
+                Q.push(n);
+        }
+
+        while (!Q.empty())      //ciclo i vicini del punto core:
+        {
+            int idx = Q.front();
+            Q.pop();
+
+            if (labels[idx] == 0) labels[idx] = clusterId; // punto classificato da rumore a cluster
+            if (labels[idx] != -1) continue;               // già visitato/core
+
+            labels[idx] = clusterId;
+
+            //ottengo i vicini del vicino
+            std::vector<float> np = {cloud->at(idx).x, cloud->at(idx).y, cloud->at(idx).z};
+            std::vector<int> n_neighbors = tree->search(np, eps);           
+
+            //se è un core --> porto i vicini in coda (quindi aggiungo ricorsivamente solo se è un core il vicino)
+            if (n_neighbors.size() >= minPts)
+            {
+                for (int nn : n_neighbors)
+                    if (labels[nn] == -1) Q.push(nn);
+            }
+        }
+    }
+
+    // Converti labels in vettore di pcl::PointIndices per creare il vettore di cluster
+    std::vector<pcl::PointIndices> clusters;
+    std::unordered_map<int, pcl::PointIndices> cluster_map;
+    for (int i = 0; i < N; ++i)
+    {
+        int l = labels[i];      //se label[punto:10]= 4  -->appartiene al cluster 4 quindi lo metto nel vettore cluster_map[4]
+        if (l <= 0) continue; // rumore
+        cluster_map[l].indices.push_back(i);
+    }
+
+    for (auto &kv : cluster_map)       //aggiungo singolarmente i cluster [cluster_map[0] , ... ]
+        clusters.push_back(kv.second);
 
     return clusters;
 }
@@ -213,9 +293,6 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
     vg.setInputCloud(cloud);
     vg.setLeafSize(LEAF_VOXEL_GRID, LEAF_VOXEL_GRID, LEAF_VOXEL_GRID); 
     vg.filter(*cloud_filtered);       
-
-    std::cout << "[INFO] PointCloud after filtering: " 
-              << cloud_filtered->width * cloud_filtered->height << " points." << std::endl;
 
     if (SHOW_VOXEL_FILTERED) {
         Color red(1.0, 0.0, 0.0);
@@ -271,8 +348,6 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
         extract.filter(*cloud_plane);
 
-        std::cout << "[INFO] Plane " << i 
-                  << " extracted with " << cloud_plane->size() << " points." << std::endl;
 
         if (SHOW_PLANES) {
             Color green(0.0, 1.0, 0.0);
@@ -299,7 +374,7 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
 
 
     // Clustering
-
+    
     std::vector<pcl::PointIndices> cluster_indices;
 
     #ifdef USE_PCL_LIBRARY                      //already implemented in PCL 
@@ -316,8 +391,8 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
         ec.setSearchMethod(tree);
         ec.setInputCloud(cloud_filtered);
         ec.extract(cluster_indices);
-
-    #else               //my_version
+    #endif
+    #ifdef   MY_PCL            //mia versione di opt euclidian clustering
 
         my_pcl::KdTree treeM;
         treeM.set_dimension(3);
@@ -325,51 +400,31 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
         cluster_indices = euclideanCluster(cloud_filtered, &treeM, CLUSTER_TOLERANCE, MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE);
 
     #endif
+    #ifdef MY_DBSCAN
+
+        my_pcl::KdTree treeM;
+        treeM.set_dimension(3);
+        setupKdtree(cloud_filtered, &treeM, 3);
+
+        // Parametri DBSCAN
+        float eps = 0.5f;          // distanza massima per considerare i punti vicini (in metri)
+        int minPts = 10;           // numero minimo di punti per considerare un punto core
+
+        cluster_indices = DBSCAN(cloud_filtered, &treeM, eps, minPts);
+
+    #endif
 
 
-    std::vector<Color> colors = {Color(1,0,0), Color(1,1,0), Color(0,0,1), Color(1,0,1), Color(0,1,1)};
+    // Rosso: distanza < 3m, giallo <6, verde altrimenti
+    const Color RED(1.0f, 0.0f, 0.0f);
+    const Color YELLOW(1.0f, 1.0f, 0.0f);
+    const Color GREEN(0.0f, 1.0f, 0.0f);
+    const float RED_DIST = 3.0f;
+    const float YELLOW_DIST = 6.0f;
 
-
-    /**Now we extracted the clusters out of our point cloud and saved the indices in cluster_indices. 
-
-    To separate each cluster out of the vector<PointIndices> we have to iterate through cluster_indices, create a new PointCloud for each entry and write all points of the current cluster in the PointCloud.
-    Compute euclidean distance
-    
-    int j = 0;
+    //std::cout << cluster_indices.size() << std::endl;
     int clusterId = 0;
-    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
-    {
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-        for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit)
-        cloud_cluster->push_back ((*cloud_filtered)[*pit]); 
-        cloud_cluster->width = cloud_cluster->size ();
-        cloud_cluster->height = 1;
-        cloud_cluster->is_dense = true;
 
-        renderer.RenderPointCloud(cloud,"originalCloud"+std::to_string(clusterId),colors[2]);
-        // TODO: 7) render the cluster and plane without rendering the original cloud 
-        //<-- here
-        //----------
-
-        //Here we create the bounding box on the detected clusters
-        pcl::PointXYZ minPt, maxPt;
-        pcl::getMinMax3D(*cloud_cluster, minPt, maxPt);
-
-        //TODO: 8) Here you can plot the distance of each cluster w.r.t ego vehicle
-        Box box{minPt.x, minPt.y, minPt.z,
-        maxPt.x, maxPt.y, maxPt.z};
-        //TODO: 9) Here you can color the vehicles that are both in front and 5 meters away from the ego vehicle
-        //please take a look at the function RenderBox to see how to color the box
-        renderer.RenderBox(box, j);
-
-        ++clusterId;
-        j++;
-    }  **/
-    std::cout << cluster_indices.size() << std::endl;
-    int clusterId = 0;
-    // "it --> iteratore dei cluster"
-    // it-->indices per accedere a tutti i punti del cluster attuale
-    // cloud_cluster perchè si crea ad ogni iterazione la nuvola del cluster con colori che ciclano
     for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZ>);
@@ -381,48 +436,41 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
         cloud_cluster->height = 1;
         cloud_cluster->is_dense = true;
 
-        // --- Render cluster ---
-        Color clusterColor = colors[clusterId % colors.size()];
-        renderer.RenderPointCloud(cloud_cluster, "cluster_" + std::to_string(clusterId), clusterColor);
+        // Cerco il punto più vicino dall'ego vehicle (si trova in (0,0,0)) per cui corrisponde alla norma del punto
+        float minDistance = 9999999;
+        for (const auto& pt : cloud_cluster->points)
+        {
+            float dist = std::sqrt(pt.x*pt.x + pt.y*pt.y + pt.z*pt.z);          //la norma (distanza dall'origine)
+            if (dist < minDistance)
+                minDistance = dist;
 
-        // --- Bounding box ---
+            if (minDistance < RED_DIST)         //in questo caso ho già deciso il colore rosso posso fermarmi
+                break;
+        }
+
+        // Decido quindi il colore del cluster
+        const Color* clusterColor = nullptr;
+        if (minDistance < RED_DIST)
+            clusterColor = &RED;
+        else if (minDistance < YELLOW_DIST)
+            clusterColor = &YELLOW;
+        else
+            clusterColor = &GREEN;
+
+        renderer.RenderPointCloud(cloud_cluster, "cluster_" + std::to_string(clusterId), *clusterColor);
+
+        // render del box rosso attorno al cluster
         pcl::PointXYZ minPt, maxPt;
         pcl::getMinMax3D(*cloud_cluster, minPt, maxPt);
         Box box{minPt.x, minPt.y, minPt.z, maxPt.x, maxPt.y, maxPt.z};
-
-        // TODO: opzionale: colorare box in base alla distanza dall'ego vehicle [da fare]
         renderer.RenderBox(box, clusterId);
 
-        ++clusterId;
+        clusterId++;
     }
 
 
+
 }
-
-
-// SOLO di partenza
-void ProcessAndRenderPointCloud_def(Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
-{
-    // Mostra semplicemente la point cloud originale
-    if (cloud->empty()) {
-        std::cout << "[WARNING] Empty point cloud, nothing to render!" << std::endl;
-        return;
-    }
-
-    // Colore rosso per la nuvola  [r,g,b]
-    Color red(1.0, 0.0, 0.0);
-
-    // Render della nuvola originale
-    renderer.RenderPointCloud(cloud, "originalCloud", red);
-
-    // Aggiungiamo anche la strada per riferimento (opzionale)
-    //renderer.RenderHighway();
-
-
-    std::cout << "[INFO] Rendered point cloud with " 
-              << cloud->size() << " points." << std::endl;
-}
-
 
 
 int main(int argc, char* argv[])
