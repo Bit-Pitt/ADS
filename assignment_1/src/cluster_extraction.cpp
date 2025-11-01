@@ -18,16 +18,18 @@
 #include <unordered_set>
 #include "../include/tree_utilities.hpp"
 #include <boost/filesystem.hpp>
-#include <stack>   //per opt versione di proximity
 #include <queue>
+#include <stack>
+
 namespace fs = boost::filesystem;
 
 
 using namespace lidar_obstacle_detection;
 
+
 // Config generale
 namespace Config {
-
+    
     //define USE_PCL_LIBRARY 
     //#define MY_PCL 
     #define MY_DBSCAN 
@@ -108,6 +110,8 @@ void proximity(typename pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, int target_nd
         }
     }
 }
+
+
 
 
 // Versione ottimizzata, resa la funzione iterativa evitando lo stack di ricorsione, e look-up diretto dei visited con array [invece che set per cui hai overhead dell'hash]
@@ -278,6 +282,7 @@ std::vector<pcl::PointIndices> DBSCAN(
 }
 
 
+
 void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
     using namespace Config;
@@ -425,6 +430,7 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
     //std::cout << cluster_indices.size() << std::endl;
     int clusterId = 0;
 
+    
     for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZ>);
@@ -467,7 +473,7 @@ void ProcessAndRenderPointCloud (Renderer& renderer, pcl::PointCloud<pcl::PointX
 
         clusterId++;
     }
-
+    
 
 
 }
