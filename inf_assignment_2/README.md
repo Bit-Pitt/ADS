@@ -1,57 +1,47 @@
-# Kalman Filter Multi Object Tracker
+                        SECONDO ASSIGNMENT
 
-## Build the project 
+Di seguito sono riportate le modifiche fatte
 
-To build the project: 
-```
-mkdir build
-cd build
-cmake ..
-make -j2
-```
-Download the dataset with the point cloud from here (https://drive.google.com/file/d/1TWfV1odleih6d0SG7q2Sbs1jbZ4oSPkP/view?usp=share_link) and place the ```log``` folder in the used build folder. 
+1)
+- Tracker con KF:
+
+    - data association  implementata con Mahalanobis Distance  (molto stabile e affermata in letteratura)
+        - in aggiunta ho ideato e implementato una variante che sostanzialmente calcola l'angolo tra la direzione della traccia e il vettore [track_predetta -> detections], l'euristica è che se l'angolo è piccolo allora è simile alla direzione della traccia nell'istante precedente per cui è viene premiata e al contrario se l'angolo aumenta viene penalizzata (il codice si trova commentato in fondo in tracker.cpp tuttavia è meno robusta per cui ho tenuto la Mahalanobis)
+
+- Aggiunta e rimozione delle track
+    idea di base: 
+        -  una detection non associata --> nuova track
+        - una track non associata per un certi numero di frame o alta covarianza --> track persa
+    Estensione:
+    L'idea è provare a riconoscere in certi casi delle nuove track come in realtà il ritrovamento di una persa, per questo le track recentemente perse vengono temporaneamente tenute e se si presenta una nuova detection in un punto sufficientemente vicino (distance_threashold) ad una track recente persa allora viene "riesumata" la precedente
+    Si può consultare l'implementazione in addTracks() e removeTrack()
+
+2) Commento di scenari dovuti alla modifica dei parametri del KF
+Variazione di R:
+    - Aumentando R(0,0) e R(1,1), e quindi il rumore che si associa alle misure si riscontra una maggiore instabilità del filtro 
+    che aumenta molto nel momento in cui le tracks si muovono e sono vicine tra loro, portando molto più di prima le track a scambiarsi tra loro e/o a perdersi. In conclusione essendo le misure del LiDAR precise è logico che trattandole come più rumorose l'efficiacia del filtro deteriorasse.
 
 
-Run the project by executing
-```
-./main
-```
+Variazione di Q:
+    - Aumentando la covarianza di Q e quindi l'incertezza del nostro modello di poco (2/3x) non porta ad un sostanziale cambiamento ma un aumento più alto porta anche in questo caso ad una alta instabilità del modello nei momenti in cui c'è movimento delle track andando a scambiarsi frequentamente.
+    Mentre con un Q basso la traiettoria del filtro segue fedelmente quella della persone quando si perdono frame (es con il tasto "v"), aumentando il Q spesso il filtro crea una traiettoria che diverge con quella effettiva della persona portando quindi a perdere o scambiare le  track. In definita quindi modellare il rumore del modello come eccessivamente incerto porta giustamente ad avere comportamenti poco stabili quando le track sono vicine tra loro.
 
-NOTE: the program will NOT work properly, some implementation is missing.
+Variazione di P:
+    Sia un  grande aumento che diminuzioni di P (min provato: 1, max provato: 99999) non hanno portato a delle differenze sostanziali, facendo intuire che grazie all'altra freq di aggiornamento del lidar e della sua precisione i valori di P iniziali tendono a non avere un effettivo impatto, andando a convergere velocemente in valori bassi.
 
-## Goals: 
 
-This code implements a Kalman Filter to track the pedestrians on the LiDAR point cloud using the given clusters.
-The handling of the point cloud and the clustering is given, as well as the tracker implementation and the viewer. 
-Only some parts are missing. 
-You are not required to implement anything, we do not expect for the solution should to be delivered. 
-However, this project will be the starting point for the technical interview. 
+FUNZIONALITA' IMPLEMENTATE    con annessi plot creati in python salvando l'output su file
+- Distanza percorsa da ogni track ==> (barplot)
+- Determinata un area (nel main) ==> grafico (track_id, step) effettuati nell'area   (barplot)
+- Mappa del percorso di ogni track ==>   (grafico 2D)
 
-- Files to complete: 
-    - KalmanFilter.cpp: implement the Kalman Filter predict and update and initialize the covariance matrix
-    - Tracker.cpp: implement the following components: 
-        - Implement the initialization initialization (initialize the variables)
-        - Implement the track logic
-        - Implement the removal tracklets logic
-        - Implement the data association to associate clusters with tracklets (i.e. tracked objects).
-- Files to ignore: everything related to the viewer or cloud processing (e.g. Rendered.cpp or CloudManager.cpp). The clustering is given and no contribution it expected on that.
-- Suggest possible improvements to enhance the solution.
+*Le funzionalità sono state implementate in un file "post_track_analysis.cpp" con proprio header per pulizia del codice, per cui è stato modificato il  CMakeLists.
+Queste analisi vengono effettuate "offline" ovvero a fine ciclo di lettura delle PCL, per implementarlo ho impostato un numero di frame nel main (nella parte in alto per la configurazione) che fa terminare il processo dopo MAX_FRAMES frame.  (per cui cambiato anche il cloud manager che anche lui dovrà stopparsi insieme al main)
 
-Note: the 'v' key turns off the LiDAR clusters (hence the software just uses the Kalman Filter estimations). Could be helpful to validate the implementation.
+Il codice è commentato e ho mantenuto le stampe su terminale perchè documentano come si comporta il codice a fronte delle funzionalità aggiunte.
 
-## Evaluation metrics (over 15 points extra 5 optional points): 
+A seguito di una run dovrebbe creare 3 file CSV, successivamente runnare lo script in python (che ha path dinamici) per ottenere i plot.
 
-KF tracker compile and work (0-8 points)
-    - The score will be assigned according to the performance of the tracker (tracking performance, timing performance, code quality, and comments) 
-    - The more the originality of the code the better the degree will be
 
-Readme including different scenarios and conclusions (2 points)
- - Play with the role of the covariances and report your experience
-    
-Implement any cool functionality! (0-5 points)
--   Return the id and length of the path of the track that has traveled the longest path
--   Define an area and count the persons that has entered in that area
--   Define an area and return the ID of the person who has been in that area the longest
--   Is it possible to extend the state vector to support the yaw angle? If so, why and how. Try to implement it
--   Feel free to propose your idea!
+
 

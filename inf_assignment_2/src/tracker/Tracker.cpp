@@ -1,5 +1,8 @@
 #include "tracker/Tracker.h"
 #include <iostream>
+#include <Eigen/Dense>
+#include <limits>
+#include <cmath>
 
 Tracker::Tracker()
 {
@@ -122,10 +125,6 @@ void Tracker::addTracks(const std::vector<bool> &associated_detections,
 }
 
 
-#include <Eigen/Dense>
-#include <limits>
-#include <cmath>
-
 
 // DATA ASSOCIATION con Mahalanobis Distance
 void Tracker::dataAssociation(std::vector<bool> &associated_detections,     // sono vettori paralleli
@@ -204,6 +203,7 @@ void Tracker::dataAssociation(std::vector<bool> &associated_detections,     // s
         }
     }
 }
+    
 
 
 
@@ -245,16 +245,6 @@ void Tracker::track(const std::vector<double> &centroids_x,
     // 6. Aggiungi nuovi tracklet per le detection non associate
     addTracks(associated_detections, centroids_x, centroids_y);
 }
-
-
-
-
-
-
-
-
-
-
 
 
 

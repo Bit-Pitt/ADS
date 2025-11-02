@@ -3,6 +3,8 @@
 namespace fs = boost::filesystem;
 using namespace std;
 
+
+
 CloudManager::CloudManager(const std::string &path, int64_t freq, viewer::Renderer &renderer,int max_frame)
 {
     path_ = path;
@@ -84,18 +86,14 @@ void CloudManager::processAndRenderPointCloud(const pcl::PointCloud<pcl::PointXY
         std::vector<pcl::PointIndices> cluster_indices;
         pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
 
-        // Set the spatial tolerance for new cluster candidates
-        tree->setInputCloud(cloud_filtered);
+        
         ec.setClusterTolerance(0.14);
-
-        // We impose that the clusters found must have at least 60 points and maximum 600 points
         ec.setMinClusterSize(60);
-        ec.setMaxClusterSize(400);
+        ec.setMaxClusterSize(150);
         ec.setSearchMethod(tree);
         ec.setInputCloud(cloud_filtered);
-
-        // Extract the clusters
         ec.extract(cluster_indices);
+        
 
         int clusterId = 0;
         std::vector<double> centroids_x;

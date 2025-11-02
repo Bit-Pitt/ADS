@@ -14,10 +14,11 @@ void KalmanFilter::init(double dt)
 
   // Covarianza iniziale del nostro modello ==>  valori grandi xchè non conosciamo bene lo stato iniziale
   P_ = Eigen::MatrixXd(4, 4);
-  P_ << 9999., 0., 0., 0.,
-        0., 9999., 0., 0.,
-        0., 0., 9999., 0.,
-        0., 0., 0., 9999.;
+  
+  P_ << 1000., 0., 0., 0.,
+        0., 1000., 0., 0.,
+        0., 0., 1000., 0.,
+        0., 0., 0., 1000.;
 
   //  MATRICE DI MISURA (solo x,y osservabili) 
   H_ = Eigen::MatrixXd(2, 4);
@@ -25,10 +26,11 @@ void KalmanFilter::init(double dt)
         0., 1., 0., 0.;
 
   // COVARIANZA DEL RUMORE DI MISURA 
-  // ±15 cm di errore medio nel cluster centroid
   R_ = Eigen::MatrixXd(2, 2);
-  R_ << 0.0225, 0.,
-        0., 0.0225;
+  R_ << 0.02, 0.,
+        0., 0.02;
+      
+     
 
   //  MATRICE DI TRANSIZIONE
   F_ = Eigen::MatrixXd(4, 4);
@@ -38,8 +40,8 @@ void KalmanFilter::init(double dt)
         0., 0., 0., 1.;
 
   // --- MATRICE DI COVARIANZA DEL PROCESSO ---
-  double noise_ax_ = 2.0;
-  double noise_ay_ = 2.0;
+  double noise_ax_ = 0.1;
+  double noise_ay_ = 0.1;
   double dt_2 = dt_ * dt_;
   double dt_3 = dt_2 * dt_;
   double dt_4 = dt_3 * dt_;
