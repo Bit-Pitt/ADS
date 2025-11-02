@@ -25,6 +25,9 @@ public:
   double getY() { return x_[1]; }
   double getVX() { return x_[2]; }
   double getVY() { return x_[3]; }
+  Eigen::MatrixXd getP() const { return P_; }
+
+
 
 private:
   // dt in seconds

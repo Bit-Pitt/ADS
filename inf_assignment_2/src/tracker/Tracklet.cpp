@@ -8,6 +8,7 @@ Tracklet::Tracklet(int idTrack, double x, double y)
   // initialize filter
   kf_.init(0.1);    //10 Hz (freq aggiorniamento che simuliamo)
   kf_.setState(x, y);
+  history_.push_back({x, y});   //primo passo
 
   // set loss count to 0
   loss_count_ = 0;
@@ -34,6 +35,7 @@ void Tracklet::update(double x, double y, bool lidarStatus)
   {
     raw_measurements_ << x, y;
     kf_.update(raw_measurements_);
+    history_.push_back({kf_.getX(), kf_.getY()});   //aggiorno con la pos stimata dal KF
     loss_count_ = 0;
   }
 }

@@ -20,7 +20,7 @@
 class CloudManager
 {
 public:
-  CloudManager(const std::string &path, int64_t freq, viewer::Renderer &renderer);
+  CloudManager(const std::string &path, int64_t freq, viewer::Renderer &renderer,int max_frame);
   void startCloudManager();
 
   // getters
@@ -57,6 +57,9 @@ private:
 
   // path to logs
   std::string path_;
+
+  //max frames
+  int max_frame_ = 0;
 };
 
 #endif // MANAGER_H_

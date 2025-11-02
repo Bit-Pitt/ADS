@@ -27,11 +27,24 @@ public:
              bool lidarStatus);
 
   // getters
-  const std::vector<Tracklet> &getTracks() { return tracks_; }
+  const std::vector<Tracklet> &getTracks() const { return tracks_; }
+  const std::vector<Tracklet>& getLostTracks() const { return lost_tracks_; }
+  const std::vector<Tracklet>& getArchivedTracks() const { return archived_tracks_; }
+
+
+  
 
 private:
-  // tracklets
+  // tracklets attivi
   std::vector<Tracklet> tracks_;
+
+  // trackelets persi recentemente
+  std::vector<Tracklet> lost_tracks_;
+
+  // archiviate definitivamente (per analisi)
+  std::vector<Tracklet> archived_tracks_; 
+
+
   int cur_id_;
 
   // association
@@ -41,6 +54,7 @@ private:
   double distance_threshold_;
   double covariance_threshold;
   int loss_threshold;
+  int resurrection_window_;
 };
 
 #endif // TRACKER_H_

@@ -3,11 +3,12 @@
 namespace fs = boost::filesystem;
 using namespace std;
 
-CloudManager::CloudManager(const std::string &path, int64_t freq, viewer::Renderer &renderer)
+CloudManager::CloudManager(const std::string &path, int64_t freq, viewer::Renderer &renderer,int max_frame)
 {
     path_ = path;
     freq_ = freq;
     renderer_ = &renderer;
+    max_frame_ = max_frame;
 
     // create the cloud
     cloud_ = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
@@ -85,11 +86,11 @@ void CloudManager::processAndRenderPointCloud(const pcl::PointCloud<pcl::PointXY
 
         // Set the spatial tolerance for new cluster candidates
         tree->setInputCloud(cloud_filtered);
-        ec.setClusterTolerance(0.15);
+        ec.setClusterTolerance(0.14);
 
         // We impose that the clusters found must have at least 60 points and maximum 600 points
         ec.setMinClusterSize(60);
-        ec.setMaxClusterSize(600);
+        ec.setMaxClusterSize(400);
         ec.setSearchMethod(tree);
         ec.setInputCloud(cloud_filtered);
 
@@ -153,9 +154,11 @@ void CloudManager::startCloudManager()
     // sort files in ascending (chronological) order
     std::sort(stream.begin(), stream.end());
     auto streamIterator = stream.begin();
-
-    while (true && streamIterator != stream.end())
+    int frame = 0;
+    while (frame<max_frame_ && streamIterator != stream.end())
     {
+        frame++;
+
         auto startTime = std::chrono::steady_clock::now();
 
         // read pointcloud from file
