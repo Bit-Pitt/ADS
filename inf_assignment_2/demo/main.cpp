@@ -14,11 +14,7 @@ namespace Config{
     //const int MAX_FRAMES = std::numeric_limits<int>::max(); se non si vuole uscire
  
     bool debug_storia = false;          //per stampare i "passi" di ogni track
-
-
-    // Decidi un area per visualizzare le track che ci sono passate e per quanti step
-    double x_min = -5,  x_max = 0;
-    double y_min = -2 , y_max = 0;
+   
 }
 
 int main(int argc, char *argv[])
@@ -115,10 +111,13 @@ int main(int argc, char *argv[])
     //Esporta distanze percorse da ogni track 
     post_analysis::computeTrackDistances(total_tracks);
 
+    // Decidi un area per visualizzare le track che ci sono passate e per quanti step
+    double x_min = -5,  x_max = 0;
+    double y_min = -2 , y_max = 0;
     
     post_analysis::computeTracksInArea(total_tracks,
-                                            Config::x_min,Config::x_max,
-                                            Config::y_min,Config::y_max);
+                                            x_min,x_max,
+                                            y_min,y_max);
     
 
 
