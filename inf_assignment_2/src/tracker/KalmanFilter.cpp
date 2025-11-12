@@ -53,7 +53,6 @@ void KalmanFilter::init(double dt)
         0., dt_3 / 2. * noise_ay_, 0., dt_2 * noise_ay_;
 }
 
-// Fase di Predizione   (nuova x, nuova P)
 void KalmanFilter::predict()
 {
   x_ = F_ * x_;
