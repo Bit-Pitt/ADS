@@ -1,12 +1,13 @@
                         SECONDO ASSIGNMENT
 
 Di seguito sono riportate le modifiche fatte
+*tutti i file contenuti nel repo sono stati modificati (anche il CMakeLists)
 
 1)
 - Tracker con KF:
 
     - data association  implementata con Mahalanobis Distance  (molto stabile e affermata in letteratura)
-        - in aggiunta ho ideato e implementato una variante che sostanzialmente calcola l'angolo tra la direzione della traccia e il vettore [track_predetta -> detections], l'euristica è che se l'angolo è piccolo allora è simile alla direzione della traccia nell'istante precedente per cui è viene premiata e al contrario se l'angolo aumenta viene penalizzata (il codice si trova commentato in fondo in tracker.cpp tuttavia è meno robusta per cui ho tenuto la Mahalanobis)
+        - (*) in aggiunta ho ideato e implementato una variante che sostanzialmente calcola l'angolo tra la direzione della traccia e il vettore [track_predetta -> detections], l'euristica è che se l'angolo è piccolo allora è simile alla direzione della traccia nell'istante precedente per cui è viene premiata e al contrario se l'angolo aumenta viene penalizzata (il codice si trova commentato in fondo in tracker.cpp tuttavia è meno robusta per cui ho tenuto la Mahalanobis)
 
 - Aggiunta e rimozione delle track
     idea di base: 
@@ -43,5 +44,8 @@ Il codice è commentato e ho mantenuto le stampe su terminale perchè documentan
 A seguito di una run dovrebbe creare 3 file CSV, successivamente runnare lo script in python (che ha path dinamici) per ottenere i plot.
 
 
+*Possibile miglioramento
+Essendo il nostrato stato [x,y,vx,vy] effettivamente si riesce a ricavare le direzione (quindi la yaw) che corrisponde alla somma delle due velocità cosa infatti che ho sfruttato nella implementazione della dataAssociation qui (*), ma è possibile estendere il modello cercando di capire come varia la direzione e quindi a fare predizioni più accurate ipotizzando che la variazione sia costante così come fatto con la velocità [x,y,vx,vy,yaw_rate]
+Stimare il cambio di direzione porterebbe quindi a una migliora stima del modello in quanto considerebbe una "variabile" in più e inoltre sarebbe più precisa la mia idea (*) di data association considerando la direzione predetta e non quella misurata nell'istante precedenete.
 
 
