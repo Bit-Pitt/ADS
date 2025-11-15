@@ -2,6 +2,9 @@
 #define PARTICLE_FILTER_H_
 
 #include "particle/helper_functions.h"
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
 
 struct Particle {
 
@@ -62,8 +65,10 @@ public:
 	 *   standard deviation of yaw [rad]]
 	 * @param nParticles Number of particles used by the algorithm
 	 */
-	void init_random(double std[],int nParticles);
+	void init_random(int nParticles,double min_x, double max_x,double min_y, double max_y);
 
+	//Per visualizzare il particle filter
+	pcl::PointCloud<pcl::PointXYZ>::Ptr asPointCloud();
 
 	/**
 	 * prediction Predicts the state for the next time step
@@ -93,7 +98,7 @@ public:
 	 * @param map Map class containing map landmarks
 	 */
 	void updateWeights(double std_landmark[], std::vector<LandmarkObs> observations,
-			Map map_landmarks);
+			Map map_landmarks,Particle &best_particle);
 	
 	/**
 	 * resample Resamples from the updated set of particles to form

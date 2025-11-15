@@ -11,12 +11,23 @@
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include <pcl_conversions/pcl_conversions.h>
 
-#define NPARTICLES 100
+
 #define circleID "circle_id"
 #define reflectorID "reflector_id"
 
 using namespace std;
 using namespace lidar_obstacle_detection;
+
+// Qui i parametri per modificare il comportamento del particle filter 
+namespace config {          //Sigma pos ==> 0.07, land 0.2   PUOI NOTARE DAI CERCHI BIANCHI (ASSOCIANO I LANDMARK) CHE LA SOLUZIONE DIVERGE
+    #define NPARTICLES 500
+    double sigma_init [3] = {3, 3, 3};
+    double sigma_pos [3]  = {0.2, 0.2, 0.2};     //se abbassi questo bad result (diverge)   
+    double sigma_landmark [2] = {0.2, 0.2};         //se abbassi a 0.05 ==> risultato PESSIMO
+    bool gps_init = false;          //true se vuoi usare il gps come initial guess
+    bool bounding_precalcolati=true;      //true se vuoi usare i bounding box del garage per random_init     
+
+}
 
 Map map_mille;
 ParticleFilter pf;
@@ -26,15 +37,12 @@ vector<Particle> best_particles;
 std::ofstream myfile;
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_particles(new pcl::PointCloud<pcl::PointXYZ>);
 
-double sigma_init [3] = {1, 1, 1};
-double sigma_pos [3]  = {0.07, 0.07, 0.07};
-double sigma_landmark [2] = {0.2, 0.2};
+
 std::vector<Color> colors = {Color(1,0,0), Color(1,1,0), Color(0,0,1), Color(1,0,1), Color(0,1,1)};
 control_s odom;
 
-// mostra particelle - ora ridimensiona safe la cloud
+// mostra particelle 
 void showPCstatus(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const vector<Particle> &particles){
-    // Assicuriamoci che la cloud abbia tanti punti quanti le particelle
     cloud->points.resize(particles.size());
     for (size_t i = 0; i < particles.size(); ++i) {
         cloud->points[i].x = particles[i].x;
@@ -46,11 +54,9 @@ void showPCstatus(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const vector<Partic
     renderer.updatePointCloud(cloud,"particles");
 }
 
-// aggiorna reflectors in viewer (protetto)
 void updateViewerReflector(const pcl::PointCloud<pcl::PointXYZI> &reflectorCenter){
     if (best_particles.empty()){
-        // non abbiamo ancora il best particle: skip
-        return;
+        return;   //skip se non abbiamo best_particle
     }
     const Particle &best = best_particles.back();
 
@@ -75,12 +81,12 @@ void OdomCb(const nav_msgs::msg::Odometry::SharedPtr msg) {
     t_start = std::chrono::high_resolution_clock::now();
 
     if(!init_odom){
-        pf.prediction(0, sigma_pos, odom.velocity, odom.yawrate);
+        pf.prediction(0, config::sigma_pos, odom.velocity, odom.yawrate);
         init_odom=true;
     } else {
         double delta_t = (std::chrono::duration<double, std::milli>(t_start - t_end).count())/1000.0;
         if (delta_t < 0) delta_t = 0;
-        pf.prediction(delta_t, sigma_pos, odom.velocity, odom.yawrate);
+        pf.prediction(delta_t, config::sigma_pos, odom.velocity, odom.yawrate);
     }
     t_end = std::chrono::high_resolution_clock::now();
 }
@@ -90,39 +96,25 @@ void PointCloudCb(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg){
     static std::chrono::time_point<std::chrono::high_resolution_clock> t_start, t_end;
     t_start = std::chrono::high_resolution_clock::now();
 
-    if (!cloud_msg) {
-        std::cerr << "[WARN] Received null cloud message, skipping." << std::endl;
-        return;
-    }
-    if (cloud_msg->width == 0 || cloud_msg->height == 0) {
-        std::cerr << "[WARN] Received empty PointCloud2 (width/height == 0), skipping." << std::endl;
-        return;
-    }
-
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>());
     try {
         pcl::fromROSMsg(*cloud_msg, *cloud);
     } catch (const std::exception &e) {
-        std::cerr << "[ERROR] pcl::fromROSMsg threw: " << e.what() << std::endl;
+        std::cerr << "pcl::fromROSMsg threw: " << e.what() << std::endl;
         return;
     }
 
     if (cloud->empty()) {
-        std::cerr << "[WARN] Converted cloud is empty, skipping." << std::endl;
+        std::cerr << "Converted cloud is empty, skipping." << std::endl;
         return;
     }
 
-    // Debug: numero di punti ricevuti
-    std::cout << "[INFO] Received cloud with " << cloud->size() << " points." << std::endl;
 
-    // Estrai i reflectors (funzione esistente)
     pcl::PointCloud<pcl::PointXYZI> reflectorCenter = extractReflectors(cloud);
-
     // Nascondi tutti i reflectors
     for(int i = 0; i < nReflectors; ++i)
         renderer.updateShape(reflectorID + std::to_string(i), 0.0);
 
-    // Aggiorna viewer (protetto)
     updateViewerReflector(reflectorCenter);
 
     // Costruisci osservazioni rumorose
@@ -134,22 +126,23 @@ void PointCloudCb(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg){
         noisy_observations.push_back(obs);
     }
 
-    // Protezione: assicurati che il filtro sia inizializzato e abbia particelle
+    // controllo che il filtro sia inizializzato e abbia particelle
     if (pf.particles.empty()) {
-        std::cerr << "[WARN] ParticleFilter has zero particles, skipping update." << std::endl;
+        std::cerr << "ParticleFilter has zero particles, skipping update." << std::endl;
         return;
     }
 
-    // Update weights e resample dentro try per sicurezza
+    Particle best_particle;
+    //  per catchare errori imprevisti
     try {
-        pf.updateWeights(sigma_landmark, noisy_observations, map_mille);
+        pf.updateWeights(config::sigma_landmark, noisy_observations, map_mille,best_particle);
         pf.resample();
     } catch (const std::exception &e) {
-        std::cerr << "[ERROR] Exception during update/resample: " << e.what() << std::endl;
+        std::cerr << "Exception during update/resample: " << e.what() << std::endl;
         return;
     }
 
-    // Seleziona best particle in modo sicuro
+    /*
     Particle best_particle = pf.particles.front();
     double highest_weight = -1.0;
     for (const auto &pt : pf.particles) {
@@ -157,13 +150,11 @@ void PointCloudCb(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg){
             highest_weight = pt.weight;
             best_particle = pt;
         }
-    }
+    }*/
     best_particles.push_back(best_particle);
 
-    // Mostra particelle (assicurati che cloud_particles abbia la dimensione giusta)
     showPCstatus(cloud_particles, pf.particles);
 
-    // Update circle
     renderer.removeShape(circleID + std::to_string(NPARTICLES + 1));
     renderer.addCircle(best_particles.back().x, best_particles.back().y, circleID + std::to_string(NPARTICLES + 1), 0.3, 1, 0, 0);
 
@@ -172,9 +163,9 @@ void PointCloudCb(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg){
     double delta_t = (std::chrono::duration<double, std::milli>(t_end - t_start).count())/1000.0;
     myfile << best_particle.x << " " << best_particle.y << " " << delta_t << '\n';
 
-    // Aggiorna viewer (singolo frame)
     renderer.SpinViewerOnce();
 }
+
 
 int main(int argc,char **argv)
 {
@@ -221,12 +212,39 @@ int main(int argc,char **argv)
     Particle p(GPS_x,GPS_y,GPS_theta);
     best_particles.push_back(p);
 
-    pf.init(GPS_x, GPS_y, GPS_theta, sigma_init, NPARTICLES);
+    if (config::gps_init)
+        pf.init(GPS_x, GPS_y, GPS_theta, config::sigma_init,NPARTICLES);
+    else
+    {
+        double min_x = 1e10, min_y = 1e10, max_x = -1e10, max_y = -1e10;
+        if (config::bounding_precalcolati)
+        {
+            min_x = -9,97788;   max_x = 10,4361; max_y = 34,3804;
+            min_y = -35;        //Questa informazione non data dai landmark
+        }
+        else
+        {      //Computo il bounding box della mappa (l'attuale cloud filtered)
+            for (const auto& pt : cloud_filtered_map->points) //Questo in generale se non sappiamo la mappa a piori
+            {
+                if (pt.x < min_x) min_x = pt.x;
+                if (pt.x > max_x) max_x = pt.x;
+                if (pt.y < min_y) min_y = pt.y;
+                if (pt.y > max_y) max_y = pt.y;
+            }
+        }
+        pf.init_random(NPARTICLES, min_x, max_x, min_y, max_y);
+    }
 
+    /**
     // Prepara cloud_particles con la misura corretta
     cloud_particles->points.clear();
     cloud_particles->points.resize(max( (size_t)1, (size_t)NPARTICLES ));
     renderer.RenderPointCloud(cloud_particles,"particles",colors[0]);
+    */
+    // Visualizza le particelle inizializzate (in sostituzione alle 3 righe sopra)
+    auto cloud_particles = pf.asPointCloud();
+    renderer.RenderPointCloud(cloud_particles, "particles", colors[1]);
+
 
     renderer.addCircle(GPS_x, GPS_y, circleID+std::to_string(NPARTICLES+1), 0.4,0,1,1);
     renderer.SpinViewerOnce();
