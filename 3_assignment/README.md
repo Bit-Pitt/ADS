@@ -1,60 +1,57 @@
-Academic Year: 2024/2025
 
-* Assignment #4 Particle filter localization:
-    - Objectives: Localize a forklift using the LiDAR and landmarks as reference
-    - Tasks evaluated (15 points):	
-        + Particle filter works and localizes the vehicle during the whole simulation (7 points) 
-			* In the code you will find different TODOs. The main tasks are related to the initialization, prediction, update, resampling and etc... (see the slides and source code)
-            * The random and guess initialization implementation is 1 point
-            * The quality of the code and optimizations of the code will be positively evaluated (try to surprise me)
-			* Note: Please send me the source code of the best localization solution you are able to achieve.
+                    PARTICLE FILTER ASSIGNMENT
 
-        + Report describing the particle filter performance under different scenarios. Just one-two-three paragraphs by scenario. Each paragraph should include a discussion of the trajectory estimated and execution time (3 points)
-			* As we have seen during the lectures, the particle filter performance can be influenced by different factors (number of particles, error of the sensors or motion model...).
-			* After executing the particle filter algorithm, a file called "res.txt" will be produced. This file will contain information regarding the estimation in X,Y coordinates of the best particle; the ground truth in X,Y coordinates; and the execution time of your solution (from initialization to resampling). All this information is used to compute the output that can be seen after executing "plotter.py"
-			* The more the scenarios the higher the grade. Originality and quality of the report will be considered to determine grades (number of scenarios required is 3)
-			* Note: The report shall include the description of the scenario, the trajectory of the forklift and the configuration used.
-        
-        + Implement your own resampling method and explain it (2 points)
-            * https://bisite.usal.es/archivos/resampling_methods_for_particle_filtering_classification_implementation_and_strategies.pdf
+- come gli altri progetti nel main è presente un namespace "config" da cui si può velocemente modificare i parametri del particle filter
 
-	    + Implement any functionality on top of the particle filter. Optimize the code, any improvement will be positively (very) evaluated (3 points or more)
-            * Any other data association technique
-            * Explore the idea of combining a particle filter with a Kalman filter to improve the localization process
-            * Implement an adaptive particle filter where the number of particles and resampling frequency adjusts dynamically based on the uncertainty in the system
-            * ...........
+- REPORT:  scritto su un file a parte mandato per e-mail
 
-* ROS bag:
-    - Download the log file here: https://drive.google.com/drive/folders/1Fi4yyKeRFSrix5cQPQOUn3OYy-EWmrn0?usp=sharing
 
-* OS requirements:
-	- ROS2 (the installation command depends on the Linux distribution)
-		Example: sudo apt install libpcl-dev ros-jazzy-pcl-conversions ros-jazzy-pcl-msgs  (this one applies to Ubuntu 24)        
-    
-* Instructions to compile the code:
-        Clean the project:
-            rm -rf build install log
-            
-        Activate the ROS setup for the current session 
-            source /opt/ros/jazzy/setup.bash
-        
-        To compile the code run this command in a different terminal (in the src folder): 
-            colcon build --symlink-install 
-        
-        To run the code:
-            . install/setup.bash
-            ros2 run pf pf_node
+- Implementazione del metodo di resampling:
 
-        As soon as you launch the executable you can start the simulation. To do so, open another terminal and write:
-            ros2 bag play data/techboard_log/
+L'implementazione scelta (a cui ho aggiunto feature aggiuntive che tratto dopo) consiste nel sistematic resampling "estremo". L'idea è nata perchè ho pensato che la versione vista a lezione della resampling wheel per un n-->inf consistesse nel prendere uniformemente nuove particelle in relazioni al loro peso, allora ho pensato di eseguire direttamente un resampling sistematico con N=num_particelle andando ad approssimare il comportamente della resampling wheel ma a costo molto minore (O(n) invece di O(n^2)). 
+Un ulteriore idea, sempre nata dal laboratorio visto in classe è stata quella di aggiungere del rumore per una maggiore esplorazione delle particelle cercando di diminuire la convergenza prematura del filtro.
 
-        The executable generates a file called 'res.txt'
-        
-	To generate the plot just write: "python3 plotter.py" (pay attention to the output file called res.txt with the trajectory and execution time of your implementation) 
-	
-* Important Note:
-    - All the TODOs are in the file called "particle_filter.cpp" & "main.cpp" but you are more than free to modify any source file
-    - In the folder you find 2 txt files:
-        * pf_slam.txt: Hipert's 'best' particle filter implementation
-        * res.txt: Nacho's 'prototype' particle filter implementation (feel free to use my result as reference)
+
+- Funzionalità aggiuntive "on top of the pf".
+
+Ottimizzazioni:
+    - Associazione landmark <-> obs.id
+Mentre nella versione base questa associazione avveniva a costo O(n_landmark) cercando l'id corrispondente, adesso l'associazione avviene a tempo costante sfruttando l'ordinamento del vettore "landmark_mappa".
+
+    - Come anticipato il resampling avviene a costo lineare anzichè quadratico.
+
+    - Adaptive particle filter
+Per implementare un filtro adattivo (diminuendo e aumentando particelle) ho consultato "https://arxiv.org/pdf/1602.03572" che parla dell' ESS, una metrica che permette di capire l'attuale varianza delle particelle e scegliere quindi se aumentare o diminuirne il numero.
+E' stato quindi aggiunta questa funzionalità prima del resampling, e sempre a seconda dell'ESS viene anche eventualmente skippata la fase.
+In sostanza un ESS basso comporta che il peso di poche particelle domina la popolazione  ==> rischio degenerazione e quindi resampling
+Ess alto al contrario la popolazione ha una buona varianza ==> potremmo diminuire le particelle o skippare il resampling
+
+
+*** NOTA:
+- All'inizio ho avuto un po di problemi a far girare il codice (l'installazione di ros come nel readme non funzionava ...) alla fine ho cambiato la disposizione delle cartelle per farlo funzionare, il progetto ora:
+
+build/
+data/
+install/
+log/
+src/
+  pf/
+    include/
+      particle/
+        CircleFit.h
+        helper_cloud.h
+        helper_functions.h
+        map.h
+        particle_filter.h
+      Box.hpp
+      Renderer.hpp
+    src/
+      main.cpp
+      particle_filter.cpp
+      Renderer.cpp
+    CMakeLists.txt
+    package.xml
+    cmakepatch.txt
+    pf_slam.txt
+
 
