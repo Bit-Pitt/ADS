@@ -10,6 +10,7 @@
 #include "particle/particle_filter.h"
 using namespace std;
 
+
 static  default_random_engine gen;
 
 /*
@@ -270,17 +271,15 @@ void ParticleFilter::updateWeights(double std_landmark[],
 
     }  
     double somma=0.0;
-    
-    for (int i=0; i<num_particles ; i++)
-        somma+=particles[i].weight;
-    cout<<"SOMMA DEI PESI: "<<somma<<"\n"; 
-    /*
-    if (somma < 10){
-       for (int i=0; i<num_particles ; i++)
-        particles[i].weight += 0.2; 
-    }*/
 
-    //Calcolo la best particle per mostrarla (faccio ora prima di aggiungere rumore)
+    bool debug = false;
+    if (debug){
+        for (int i=0; i<num_particles ; i++)
+            somma+=particles[i].weight;
+        cout<<"SOMMA DEI PESI: "<<somma<<"\n"; 
+    }
+
+    //Calcolo la best particle per mostrarla (computato ora prima di aggiungere rumore)
     double highest_weight = -1.0;
     for (const auto &pt : particles) {
         if (pt.weight > highest_weight) {
@@ -292,66 +291,116 @@ void ParticleFilter::updateWeights(double std_landmark[],
 }
 
 
-/*
-* TODO
-* This function resamples the set of particles by repopulating the particles using the weight as metric
+
+void ParticleFilter::normalizeWeights() {
+    double sum_w = 0.0;
+    for (auto &p : particles) 
+        sum_w += p.weight;
+
+    if (sum_w == 0) {       // Caso anomalo ==> fallback a tutti uguali
+        double w = 1.0 / particles.size();
+        for (auto &p : particles) 
+            p.weight = w;
+        return;
+    }
+
+    for (auto &p : particles) 
+        p.weight /= sum_w;
+}
+
+// ESS come presente in letteratura
+double ParticleFilter::computeESS() {
+    double sum_sq = 0.0;
+    for (auto &p : particles)
+        sum_sq += p.weight * p.weight;
+    return 1.0 / sum_sq;
+}
+
+
+ //   Versione Systematic "deterministic" + noise +  resize (e entuale skipping)
+        // ESS: https://arxiv.org/pdf/1602.03572
 
 void ParticleFilter::resample() {
 
-    // Distribuzione uniforme per l'indice iniziale da cui partire
-    uniform_int_distribution<int> dist_index(0, num_particles - 1);
-    int index = dist_index(gen);
+    normalizeWeights();
+    double ess = computeESS();      // Effective sampling sample size
 
-    std::vector<double> weights;
-    for (int i = 0; i < num_particles; i++) {
-        weights.push_back(particles[i].weight);
+    if (ess > 0.7*num_particles){   //Popolazione ben distribuita e a basso richio degenerazione
+        total_skipped_resampling++;
+        return ;
     }
-    double max_w = *max_element(weights.begin(), weights.end());
 
-    // Distribuzione uniforme per la variabile beta
-    uniform_real_distribution<double> dist_beta(0.0, 2.0 * max_w);
+    int old_N= num_particles;
 
-    double beta = 0.0;
-    std::vector<Particle> new_particles;
-    new_particles.reserve(num_particles); 
-
-    // --- Distribuzioni per aggiungere rumore ---
+        // resize
+    if (ess < 0.1*num_particles)                  //In questo caso poche particelle dominano la popolazione ==> rischio convergenza
+        num_particles = min(max_particles, int(num_particles * 1.3));
+    else if (ess > 0.5*num_particles)             
+        num_particles = max(min_particles, int(num_particles * 0.7));
     
-    //normal_distribution<double> dist_x(0.0, 0.1);     // Rumore in metri
-    //normal_distribution<double> dist_y(0.0, 0.1);
-    //normal_distribution<double> dist_theta(0.0, 0.03); // Rumore in radianti
-    
+    // nuovo N
+    int N = num_particles;
 
-    // --- Resampling Wheel ---
-    for (int i = 0; i < num_particles; i++) {
+    normal_distribution<double> dist_x(0.0, 0.03);
+    normal_distribution<double> dist_y(0.0, 0.03);
+    normal_distribution<double> dist_theta(0.0, 0.01);
 
-        beta += dist_beta(gen);
+    //Come versione precedente
+    vector<double> cumulative(old_N);
+    cumulative[0] = particles[0].weight;
 
-        // Finché beta è maggiore del peso corrente, scorri in avanti
-        while (beta > weights[index]) {
-            beta -= weights[index];
-            index = (index + 1) % num_particles;  // ciclico
-        }
-         // Copia della particella selezionata
-        Particle p = particles[index];
+    for (int i = 1; i < old_N ; i++)
+        cumulative[i] = cumulative[i-1] + particles[i].weight;
 
-        // --- Aggiungi piccolo rumore casuale ---
-        
-        //p.x += dist_x(gen);
-        //p.y += dist_y(gen);
-        //p.theta += dist_theta(gen);
-        
+    double sum_w = cumulative.back();       //l'ultimo valore è la somma dei pesi
+    double step = sum_w / N;                // N è il nuovo numero di particelle
+
+    vector<Particle> new_particles;
+    new_particles.reserve(N);
+
+    double target = step;
+    int idx = 0;
+
+    for (int i = 0; i < N; i++) {
+
+        while (cumulative[idx] < target && idx < (old_N-1))
+            idx++;
+
+        Particle p = particles[idx];
+
+        // noise
+        p.x     += dist_x(gen);
+        p.y     += dist_y(gen);
+        p.theta += dist_theta(gen);
+
+
         new_particles.push_back(p);
+        target += step;
     }
 
-    // Aggiorna le particelle con quelle campionate
     particles = new_particles;
+
+    //Per statistiche a fine run
+    total_particles_sum += num_particles;
+    total_resample_calls++;
+    
+    bool debug = false;
+    if (debug)
+        cout<<"Numero particelle: "<<num_particles<<endl;
 }
-*/
 
 
- //   Versione Systematic "deterministic" + noise per maggiore esplorazione
 
+
+
+///////
+////                Ulteriori versioni implementate
+///////
+
+
+ //   Versione Systematic "deterministic" + noise per maggiore esplorazione   [senza resize]
+
+/*
 void ParticleFilter::resample() {
 
     normal_distribution<double> dist_x(0.0, 0.03);     // Rumore in metri
@@ -395,3 +444,44 @@ void ParticleFilter::resample() {
     }
     particles = new_particles;
 }
+*/
+
+
+
+/*
+    Versione base
+
+void ParticleFilter::resample() {
+
+    // Distribuzione uniforme per l'indice iniziale da cui partire
+    uniform_int_distribution<int> dist_index(0, num_particles - 1);
+    int index = dist_index(gen);
+
+    std::vector<double> weights;
+    for (int i = 0; i < num_particles; i++) {
+        weights.push_back(particles[i].weight);
+    }
+    double max_w = *max_element(weights.begin(), weights.end());
+
+    uniform_real_distribution<double> dist_beta(0.0, 2.0 * max_w);
+
+    double beta = 0.0;
+    std::vector<Particle> new_particles;
+    new_particles.reserve(num_particles); 
+    
+
+    for (int i = 0; i < num_particles; i++) {
+
+        beta += dist_beta(gen);
+
+        while (beta > weights[index]) {
+            beta -= weights[index];
+            index = (index + 1) % num_particles;  
+        }
+        Particle p = particles[index];
+        
+        new_particles.push_back(p);
+    }
+    particles = new_particles;
+}
+*/

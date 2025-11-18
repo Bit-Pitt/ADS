@@ -33,11 +33,20 @@ class ParticleFilter {
 	
 	// Vector of weights of all particles
 	std::vector<double> weights;
+
+	//Limiti fissati per il resampling
+	int min_particles = 150;
+	int max_particles = 600;
 	
 public:
 	
 	// Set of current particles
 	std::vector<Particle> particles;
+
+	// Statistiche dell'esecuzione
+	int total_particles_sum = 0;
+	int total_resample_calls = 0;
+	int total_skipped_resampling = 0;
 
 	// Constructor
 	// @param M Number of particles
@@ -105,6 +114,12 @@ public:
 	 *   the new set of particles.
 	 */
 	void resample();
+
+	//Normalize the weight on (0,1)
+	void normalizeWeights();
+
+	//ESS value  (Effective sample size named in Literature)
+	double computeESS();
 
 	/*
 	 * Set a particles list of associations, along with the associations calculated world x,y coordinates

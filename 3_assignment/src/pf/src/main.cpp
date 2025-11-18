@@ -19,14 +19,13 @@ using namespace std;
 using namespace lidar_obstacle_detection;
 
 // Qui i parametri per modificare il comportamento del particle filter 
-namespace config {          //Sigma pos ==> 0.07, land 0.2   PUOI NOTARE DAI CERCHI BIANCHI (ASSOCIANO I LANDMARK) CHE LA SOLUZIONE DIVERGE
-    #define NPARTICLES 500
-    double sigma_init [3] = {3, 3, 3};
-    double sigma_pos [3]  = {0.2, 0.2, 0.2};     //se abbassi questo bad result (diverge)   
-    double sigma_landmark [2] = {0.2, 0.2};         //se abbassi a 0.05 ==> risultato PESSIMO
-    bool gps_init = false;          //true se vuoi usare il gps come initial guess
-    bool bounding_precalcolati=true;      //true se vuoi usare i bounding box del garage per random_init     
-
+namespace config {         
+    #define NPARTICLES 400
+    double sigma_init [3] = {2, 2, 2};
+    double sigma_pos [3]  = {0.2, 0.2, 0.2};       
+    double sigma_landmark [2] = {0.2, 0.2};         
+    bool gps_init = true;          //per scegliere l'inizializzazione del pf   
+    bool debug = false;      //Statistic at the end of computation
 }
 
 Map map_mille;
@@ -142,15 +141,6 @@ void PointCloudCb(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg){
         return;
     }
 
-    /*
-    Particle best_particle = pf.particles.front();
-    double highest_weight = -1.0;
-    for (const auto &pt : pf.particles) {
-        if (pt.weight > highest_weight) {
-            highest_weight = pt.weight;
-            best_particle = pt;
-        }
-    }*/
     best_particles.push_back(best_particle);
 
     showPCstatus(cloud_particles, pf.particles);
@@ -217,7 +207,8 @@ int main(int argc,char **argv)
     else
     {
         double min_x = 1e10, min_y = 1e10, max_x = -1e10, max_y = -1e10;
-        if (config::bounding_precalcolati)
+        bool bounding_precalcolati = true;
+        if (bounding_precalcolati)
         {
             min_x = -9,97788;   max_x = 10,4361; max_y = 34,3804;
             min_y = -35;        //Questa informazione non data dai landmark
@@ -235,13 +226,7 @@ int main(int argc,char **argv)
         pf.init_random(NPARTICLES, min_x, max_x, min_y, max_y);
     }
 
-    /**
-    // Prepara cloud_particles con la misura corretta
-    cloud_particles->points.clear();
-    cloud_particles->points.resize(max( (size_t)1, (size_t)NPARTICLES ));
-    renderer.RenderPointCloud(cloud_particles,"particles",colors[0]);
-    */
-    // Visualizza le particelle inizializzate (in sostituzione alle 3 righe sopra)
+    // Visualizza le particelle inizializzate 
     auto cloud_particles = pf.asPointCloud();
     renderer.RenderPointCloud(cloud_particles, "particles", colors[1]);
 
@@ -273,5 +258,14 @@ int main(int argc,char **argv)
 
     myfile.close();
     rclcpp::shutdown();
+
+    if (config::debug){
+        double avg_particles = (double)pf.total_particles_sum / pf.total_resample_calls;
+
+        cout << "Media particelle utilizzate: " << avg_particles << endl;
+        cout << "Skipped resampling: " << pf.total_skipped_resampling << endl;
+    }
+
+
     return 0;
 }
